@@ -9,6 +9,11 @@
             "displayName": "Vertical Axis",
             "name": "verticalCategory",
             "kind": "Grouping"
+        },
+        {
+            "displayName": "Rotation Axis",
+            "name": "rotationCategory",
+            "kind": "Grouping"
         }
     ],
     "objects": {
@@ -27,12 +32,6 @@
                         "bool": true 
                      }
                 },
-                "diagonal": {
-                    "displayName": "Diagonal Arrows",
-                    "type": {
-                        "bool": true
-                    }
-                },
                  "incremental": {
                     "displayName": "Incremental Value",
                     "type": {
@@ -48,7 +47,8 @@
                 "categories": {
                     "select": [
                         { "for" : { "in": "horizontalCategory" } },
-                        { "for": { "in": "verticalCategory" } }
+                        { "for": { "in": "verticalCategory" } },
+                        { "for": { "in": "rotationCategory" } }
                     ],
                     "dataReductionAlgorithm": {
                         "top": {

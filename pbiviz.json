@@ -1,13 +1,13 @@
 {
   "visual": {
-    "name": "dPad",
-    "displayName": "DPad",
-    "guid": "dPad295F126A4F5A49E7A29FE46C93DE9086",
+    "name": "dPad3D",
+    "displayName": "DPad 3D",
+    "guid": "dPad295F126A4F5A49E7A29FE46C93DE90863D",
     "visualClassName": "Visual",
-    "version": "1.0.1",
-    "description": "Directional Pad",
-    "supportUrl": "https://github.com/mprozil/DPad/issues",
-    "gitHubUrl": "https://github.com/mprozil/DPad"
+    "version": "1.0.0",
+    "description": "Directional Pad 3D",
+    "supportUrl": "https://github.com/mprozil/DPad3D/issues",
+    "gitHubUrl": "https://github.com/mprozil/DPad3D"
   },
   "apiVersion": "1.11.0",
   "author": {

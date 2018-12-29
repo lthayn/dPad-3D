@@ -26,6 +26,7 @@
 
 module powerbi.extensibility.visual {
     "use strict";
+    import ISelectionId = powerbi.visuals.ISelectionId;
 
      /**
      * Interface for data points.
@@ -49,6 +50,7 @@ module powerbi.extensibility.visual {
     interface ViewModel {
         horizontalDataPoints: CategoryDataPoint[];
         verticalDataPoints: CategoryDataPoint[];
+        dataPoints: CategoryDataPoint[];
         numberOfAxis: number;
         sortedBy: String;
         settings: VisualSettings;
@@ -60,14 +62,12 @@ module powerbi.extensibility.visual {
      * @interface
      * @property {{horizontal:boolean}} settings - Object property to enable or disable horizontal arrows.
      * @property {{vertical:boolean}} settings - Object property to enable or disable vertical arrows.
-     * @property {{diagonal:boolean}} settings - Object property to enable or disable diagonal arrows.
      * @property {{incremental:number}} settings - Object property that allows setting the incremental number.
      */
     interface VisualSettings {        
         settings: {
             horizontal: boolean;
             vertical: boolean;
-            diagonal: boolean;
             incremental: number;
         };
     }
@@ -85,8 +85,10 @@ module powerbi.extensibility.visual {
         
         let horizontalIdxInCategories = -1;
         let verticalIdxInCategories = -1;
+        let rotationIdxInCategories = -1;
         let horizontalDisplayName = "";
         let verticalDisplayName = "";
+        let rotationDisplayName = "";
         let sortedBy = "";
 
         //TODO: Refactoring    
@@ -98,7 +100,10 @@ module powerbi.extensibility.visual {
             else if (options.dataViews[0].metadata.columns[i].roles.hasOwnProperty('verticalCategory')) {
                 verticalDisplayName = options.dataViews[0].metadata.columns[i].displayName;
                 if(i == 0) sortedBy = "vertical";
-            }                
+            }
+            else if (options.dataViews[0].metadata.columns[i].roles.hasOwnProperty('rotationCategory')) {
+                rotationDisplayName = options.dataViews[0].metadata.columns[i].displayName;
+            }
         }
 
         for (let i = 0; i < dataViews[0].categorical.categories.length; i++)
@@ -107,14 +112,19 @@ module powerbi.extensibility.visual {
                 horizontalIdxInCategories = i;
             else if (dataViews[0].categorical.categories[i].source.displayName == verticalDisplayName)
                 verticalIdxInCategories = i;
+            else if (dataViews[0].categorical.categories[i].source.displayName == rotationDisplayName)
+                rotationIdxInCategories = i;
         }
 
         let horizontalValues: PrimitiveValue[] = [];
         let verticalValues: PrimitiveValue[] = [];
+        let rotationValues: PrimitiveValue[] = [];
         let horizontalCategory: DataViewCategoryColumn;
         let verticalCategory: DataViewCategoryColumn;
+        let rotationCategory: DataViewCategoryColumn;
         let numberOfAxis = 0;
 
+        //TODO Refactoring
         if (horizontalIdxInCategories > -1) {
             horizontalCategory = dataViews[0].categorical.categories[horizontalIdxInCategories];
             horizontalValues = horizontalCategory.values;
@@ -126,6 +136,13 @@ module powerbi.extensibility.visual {
             verticalValues = verticalCategory.values;
             numberOfAxis++;
         }
+
+        if (rotationIdxInCategories > -1) {
+            rotationCategory = dataViews[0].categorical.categories[rotationIdxInCategories];
+            rotationValues = rotationCategory.values;
+            numberOfAxis++;
+        }      
+        
         
         let colorPalette: IColorPalette = host.colorPalette;
         let objects = dataViews[0].metadata.objects;
@@ -134,7 +151,6 @@ module powerbi.extensibility.visual {
             settings: {
                 horizontal: getValue<boolean>(objects, 'settings', 'horizontal', true),
                 vertical: getValue<boolean>(objects, 'settings', 'vertical', true),
-                diagonal: getValue<boolean>(objects, 'settings', 'diagonal', false),
                 incremental: getValue<number>(objects, 'settings', 'incremental', 1)
             }
         }
@@ -142,20 +158,22 @@ module powerbi.extensibility.visual {
         let dataPoints: CategoryDataPoint[] = [];
         let horizontalDataPoints: CategoryDataPoint[] = [];
         let verticalDataPoints: CategoryDataPoint[] = [];
-        
 
         // Set of data points. Can have data for 1 or 2 axis (in this case the 
         // keys will be the axis on category 0)
-        /*
+
         let valuesToBeTransformed = dataViews[0].categorical.categories[0].values;
         for (let i = 0, len = Math.max(valuesToBeTransformed.length); i < len; i++) {
             dataPoints.push({
                 category: valuesToBeTransformed[i] + '',
                 selectionId: host.createSelectionIdBuilder()
                     .withCategory(horizontalCategory, i)
+                    .withMeasure('X' + horizontalCategory.values[i].toString() +
+                                 'Y' + verticalCategory.values[i].toString() + 
+                                 'V' + rotationCategory.values[i].toString())
                     .createSelectionId()
             });
-        }*/
+        }
 
        if (horizontalIdxInCategories > -1)
        {
@@ -184,6 +202,7 @@ module powerbi.extensibility.visual {
         return {
             horizontalDataPoints: horizontalDataPoints,
             verticalDataPoints: verticalDataPoints,
+            dataPoints : dataPoints,
             numberOfAxis: numberOfAxis,
             sortedBy: sortedBy,
             settings: visualSettings
@@ -199,11 +218,17 @@ module powerbi.extensibility.visual {
         private selectionManager: ISelectionManager;
         private viewModel: ViewModel;
         private lastSelected: number;
+        private lastHorizontal : number;
+        private lastVertical : number;
+        private lastRotation : number;
         
         constructor(options: VisualConstructorOptions) {
             this.host = options.host;
             this.selectionManager = options.host.createSelectionManager();
             this.lastSelected = 0;
+            this.lastVertical = 1;
+            this.lastHorizontal = 1;
+            this.lastRotation = 0;
             
             this.svg = d3.select(options.element).append("svg")
                  .attr("width","100%")
@@ -212,64 +237,25 @@ module powerbi.extensibility.visual {
             this.controlsSVG = this.svg.append('svg');
             
             // TODO create button class
-            let buttonNames = ["up", "down", "left","right","diagNW","diagNE","diagSE","diagSW"];
-            let buttonPath = [
-                    "M 25,5 45,50 5,50 z", 
-                    "M 25,50 45,5 5,5 Z",
-                    "M 5,25 50,5 50,45 Z", 
-                    "M 50,25 5,45 5,5 z",
-                    "M 20,20 50,20 20,50 Z",
-                    "M 20,20 50,20 50,50 Z",
-                    "M 50,50 50,20 20,50 Z",
-                    "M 20,20 20,50 50,50 Z"
-                    ];
-            let buttonPosition = ["50, 0",
-                                  "50,95",
-                                  "0, 50",
-                                  "95,50",
-                                  "5,5",
-                                  "75,5",
-                                  "75,75",
-                                  "5,75"];
+            let buttonNames = ["up", "down", "left", "right"];
+            let buttonPath = ["M 25,5 45,50 5,50 z", "M 25,50 45,5 5,5 Z", "M 5,25 50,5 50,45 Z", "M 50,25 5,45 5,5 z"];
+            let buttonPosition = ["50,0", "50,95", "0,50", "95,50"];
+            let buttonStep = [1, -1, -1, 1];
+            let buttonDirection = ["d", "d", "r", "r"];
 
             for (let i = 0; i < buttonNames.length; ++i) {
                 let container = this.controlsSVG.append('g')
                  .attr('class', "controls")
                  .attr('transform','translate(' + buttonPosition[i] + ')')
-                 .attr('id', buttonNames[i]); 
+                 .attr('id', buttonNames[i])                 
                 container.append("path")
-                .attr("d", buttonPath[i]);
+                .attr("d", buttonPath[i])
+                .on("click", ( ) => {
+                    this.svg.select("#" + buttonNames[i]).transition().duration(100).attr('opacity',0.5)
+                                   .transition().duration(100).attr('opacity',1);
+                    this.step(buttonDirection[i], buttonStep[i]);
+                });
              }
-        
-            //Events on click
-            this.svg.select("#up").on("click", () => {
-                this.step("v",1);
-            });
-            this.svg.select("#down").on("click", () => {
-                this.step("v",-1);
-            });
-            this.svg.select("#left").on("click", () => {
-                this.step("h",-1);
-            });     
-            this.svg.select("#right").on("click", () => {
-                this.step("h",1);
-            }); 
-             this.svg.select("#diagNE").on("click", () => {
-                this.step("v",1);
-                this.step("h",1);
-            });
-            this.svg.select("#diagNW").on("click", () => {
-                this.step("v",1);
-                this.step("h",-1);
-            });
-            this.svg.select("#diagSW").on("click", () => {
-                this.step("v",-1);
-                this.step("h",-1);
-            });     
-            this.svg.select("#diagSE").on("click", () => {
-                this.step("v",-1);
-                this.step("h",1);
-            }); 
         }
 
         public update(options: VisualUpdateOptions) {
@@ -282,14 +268,7 @@ module powerbi.extensibility.visual {
                 .attr('preserveAspectRatio','xMinYMid'); 
             
             let showHorizontal = this.visualSettings.settings.horizontal;
-            let showVertical = this.visualSettings.settings.vertical;
-
-            // Disable diagonal arrows if horizontal or vertical are disabled
-            let showDiagonal = this.visualSettings.settings.diagonal 
-                                && this.visualSettings.settings.horizontal
-                                && this.visualSettings.settings.vertical;
-
-            this.visualSettings.settings.diagonal = showDiagonal;                    
+            let showVertical = this.visualSettings.settings.vertical;         
 
             this.svg.selectAll("#right, #left").attr("visibility", showHorizontal ? "show" : "hidden");         
             this.svg.select("#up").attr("transform", showHorizontal ? 'translate(50, 0)' : 'translate(50, 15)');
@@ -298,82 +277,57 @@ module powerbi.extensibility.visual {
             this.svg.selectAll("#up, #down").attr("visibility", showVertical ? "show" : "hidden");   
             this.svg.select("#left").attr("transform", showVertical ? 'translate(0, 50)' : 'translate(15, 50)');
             this.svg.select("#right").attr("transform", showVertical ? 'translate(95, 50)' : 'translate(80, 50)');
-            
-            this.svg.selectAll("#diagNE, #diagNW,#diagSE, #diagSW").attr("visibility", showDiagonal ? "show" : "hidden");
     }
 
         public step(direction: string, step: number) {
-            let incremental = this.visualSettings.settings.incremental;
-            let incrementalStep = incremental*step;
 
-            //gives an array with unique verticalDataPoints
-            let uniqueVerticalCount = [];
-            for (let i = 0; i < this.viewModel.verticalDataPoints.length; i++) {
-                if (uniqueVerticalCount.indexOf(this.viewModel.verticalDataPoints[i].category) == -1 ) {
-                    uniqueVerticalCount.push(this.viewModel.verticalDataPoints[i].category);
+            let newHorizontal = this.lastHorizontal;
+            let newVertical = this.lastVertical;
+            let newRotation = this.lastRotation;
+
+            let displacement = 1;
+            let rotationStep = 45;
+
+            if (direction == "d")
+            {
+                newHorizontal += Math.round(displacement * Math.sin(this.lastRotation * Math.PI / 180)) * step;
+                newVertical += Math.round(displacement * Math.cos(this.lastRotation * Math.PI / 180)) * step;
+            }
+            else if (direction == "r")
+            {
+                console.log("New rotation: " + newRotation)
+                newRotation += rotationStep * step;
+                if (newRotation < 0) newRotation += 360;
+                else newRotation = newRotation % 360; 
+            }
+
+            console.log("Horizontal: " + newHorizontal)
+            console.log("Vertical: " + newVertical)
+            console.log("Rotation: " + newRotation)
+            
+            let newPositionMetadata = "X" + newHorizontal.toString() + 
+                                      "Y" + newVertical.toString() + 
+                                      "V" + newRotation.toString();
+
+            let newSelectionId : ISelectionId;
+            let foundId = false;
+
+            for (let dataPoint of this.viewModel.dataPoints)
+            {
+                if (dataPoint.selectionId.getSelector().metadata == newPositionMetadata)
+                {
+                    newSelectionId = dataPoint.selectionId;
+                    foundId = true;
+                    break;
                 }
             }
 
-            //gives an array with unique horizontalDataPoints
-            let uniqueHorizontalCount = [];
-            for (let i = 0; i < this.viewModel.horizontalDataPoints.length; i++) {
-                if (uniqueHorizontalCount.indexOf(this.viewModel.horizontalDataPoints[i].category) == -1 ) {
-                    uniqueHorizontalCount.push(this.viewModel.horizontalDataPoints[i].category);
-                }
-            }
-
-
-            let dataPointsToUse = this.viewModel.sortedBy == "horizontal" ? this.viewModel.horizontalDataPoints 
-                                                                          : this.viewModel.verticalDataPoints;
-
-             //TODO: Refactoring 
-            if(direction == "v" && this.viewModel.sortedBy == "horizontal")
+            if (foundId)
             {
-                let numberOfPoints = this.viewModel.verticalDataPoints.length;
-                if (numberOfPoints == 0 ) return;
-                let currentGroup = Math.floor(this.lastSelected / uniqueVerticalCount.length);
-                let minGroup = currentGroup * uniqueVerticalCount.length;
-                let maxGroup = (currentGroup + 1) * uniqueVerticalCount.length - 1;
-                if ((this.lastSelected + incrementalStep) < minGroup || (this.lastSelected + incrementalStep) > maxGroup) return;
-                this.lastSelected = this.lastSelected + incrementalStep;
-                this.selectionManager.select(dataPointsToUse[this.lastSelected].selectionId);
-            }
-            else if(direction == "h" && this.viewModel.sortedBy == "horizontal")
-            {
-                let numberOfPoints = this.viewModel.horizontalDataPoints.length;
-                if (numberOfPoints == 0 ) return;
-                if (this.viewModel.verticalDataPoints.length == 0) {
-                    if ((this.lastSelected + incrementalStep) < 0 || (this.lastSelected + incrementalStep) > (numberOfPoints-1)) return;
-                    this.lastSelected = this.lastSelected + incrementalStep;    
-                } else {
-                    if ((this.lastSelected + incrementalStep*uniqueVerticalCount.length) < 0 || (this.lastSelected + incrementalStep*uniqueVerticalCount.length) > (numberOfPoints-1)) return;
-                    this.lastSelected = this.lastSelected + incrementalStep*uniqueVerticalCount.length;
-                }
-                this.selectionManager.select(dataPointsToUse[this.lastSelected].selectionId);
-            }
-            else if(direction == "v" && this.viewModel.sortedBy == "vertical")
-            {
-                let numberOfPoints = this.viewModel.verticalDataPoints.length;
-                if (numberOfPoints == 0 ) return;
-                if (this.viewModel.horizontalDataPoints.length == 0) {
-                    if ((this.lastSelected + incrementalStep) < 0 || (this.lastSelected + incrementalStep) > (numberOfPoints-1)) return;
-                    this.lastSelected = this.lastSelected + incrementalStep;    
-                } else {
-                    if ((this.lastSelected + incrementalStep*uniqueHorizontalCount.length) < 0 || (this.lastSelected + incrementalStep*uniqueHorizontalCount.length) > (numberOfPoints-1)) return;
-                    this.lastSelected = this.lastSelected + incrementalStep*uniqueHorizontalCount.length;
-                }
-                this.selectionManager.select(dataPointsToUse[this.lastSelected].selectionId);
-            }
-            else if(direction == "h" && this.viewModel.sortedBy == "vertical")
-            {
-                let numberOfPoints = this.viewModel.horizontalDataPoints.length;
-                if (numberOfPoints == 0 ) return;
-                let currentGroup = Math.floor(this.lastSelected / uniqueHorizontalCount.length);
-                let minGroup = currentGroup * uniqueHorizontalCount.length;
-                let maxGroup = (currentGroup + 1) * uniqueHorizontalCount.length - 1;
-                if ((this.lastSelected + incrementalStep) < minGroup || (this.lastSelected + incrementalStep) > maxGroup) return;
-                this.lastSelected = this.lastSelected + incrementalStep;
-                this.selectionManager.select(dataPointsToUse[this.lastSelected].selectionId);
+                this.selectionManager.select(newSelectionId);
+                this.lastHorizontal = newHorizontal;
+                this.lastVertical = newVertical;
+                this.lastRotation = newRotation;
             }
         }
 
@@ -393,7 +347,6 @@ module powerbi.extensibility.visual {
                         properties: {
                             horizontal: this.visualSettings.settings.horizontal,
                             vertical: this.visualSettings.settings.vertical,
-                            diagonal: this.visualSettings.settings.diagonal,
                             incremental: this.visualSettings.settings.incremental
                         },
                         validValues: {
