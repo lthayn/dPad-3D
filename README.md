@@ -1,12 +1,11 @@
-# D-Pad
+# D-Pad 3D
 
-Simple Power BI visual that works like a directional pad.
+Simple Power BI visual that works like a directional pad for 3D games.
 
-Tip: Generate the vertical and horizontal columns with thr DAX below:
+Tip: Generate the vertical, horizontal and rotation columns with the DAX below:
 
-    D-Pad Table =
-        VAR size = 50 
-        VAR H = SELECTCOLUMNS(GENERATESERIES(1;size);"Horizontal";[Value]) 
-        VAR V = SELECTCOLUMNS(GENERATESERIES(1;size);"Vertical";[Value]) 
-        RETURN 
-        GENERATE(H;V)
+    Location Table = CROSSJOIN(
+            SELECTCOLUMNS(GENERATESERIES(1;50);"X";[Value]);
+            SELECTCOLUMNS(GENERATESERIES(1;75);"Y";[Value]);
+            SELECTCOLUMNS(GENERATESERIES(0;330;45);"V";[Value])
+            )
